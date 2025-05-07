@@ -1,0 +1,354 @@
+---
+title: "Color CNN Final Project Figures - NEUR189B"
+author: "Charlotte Imbert and Yufei Meng'
+output: html_document
+date: "2025-05-06"
+---
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(tidyverse)
+
+#specifies local file path to brightness and contrast metrics .xlsx files.
+#creates a list with the name of each sheet in each .xlsx file
+
+bright_path<- "/Users/charlotteimbert/Documents/nefesi_outputs/metrics_brightness.xlsx"
+bright_sheets<- excel_sheets(bright_path)
+bright_list<- set_names(bright_sheets)|> 
+  map(~ read_xlsx(bright_path,sheet = .x))
+
+contrast_path<- "/Users/charlotteimbert/Documents/nefesi_outputs/metrics_contrast.xlsx"
+contrast_sheets<- excel_sheets(contrast_path)
+contrast_list<- set_names(contrast_sheets)|>
+  map(~ read_xlsx(contrast_path,sheet = .x))
+
+#creates df objects in R using the lists defined above (one df for contrast and one for brightness)
+bright_df<- bind_rows(bright_list, .id = "level")
+contrast_df<- bind_rows(contrast_list,.id = "level")
+
+#define a function that adds a selectivity (high, low, non) column to each dataframe based on CSI value
+add_selectivity <- function(df) {
+  df |>
+    mutate(
+    selectivity = case_when(
+      csi > 0.25 ~"high",
+      csi > 0.1 & csi <= 0.25~"low",
+      TRUE ~"non-selective"
+    )
+  )
+}
+#reorder and rename the transformation labels to make the plots neater
+bright_df<- add_selectivity(bright_df)
+bright_levels<- c("brightneg100","brightneg50","original","bright50","bright100")
+bright_labels<- c("-100","-50","Original","50","100")
+contrast_df<- add_selectivity(contrast_df)
+contrast_levels<- c("contrastneg100","contrastneg50","original","contrast_50","contrast_100")
+contrast_labels<- c("-100","-50","Original","50","100")
+
+bright_df   <- bright_df |>
+  mutate(level = factor(level,levels = bright_levels,labels = bright_labels))
+contrast_df <- contrast_df |>
+  mutate(level = factor(level,levels = contrast_levels,labels = contrast_labels))
+
+#creates a df with the index of the first high color selective neuron in each layer
+high_neurons <- bright_df |>
+  filter(selectivity == "high") |>
+  group_by(layer) |>
+  slice(1) |> 
+  ungroup() |>
+  select(layer, neuron_idx)
+
+#vector of nicer labels for the layers
+layer_labels<- c("features.0" = "conv1_1","features.2" = "conv1_2","features.5" = "conv2_1","features.7" = "conv2_2")
+
+#plot brightness by layer for the first high selectivity neuron in each layer
+p_bright <- bright_df |>
+  inner_join(high_neurons, by = c("layer","neuron_idx")) |>
+  ggplot(aes(x = level, y = max_activation, group = neuron_idx)) +
+    geom_line(color = "royalblue4") +
+    geom_point(size = 2, color = "royalblue4" ) +
+    facet_wrap(~ layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Max Activation by Brightness and Layer",
+      subtitle = "First High Color Selective Neuron in Each Layer",
+      x = "Brightness Level",
+      y = "Max Activation"
+    ) +
+    theme_minimal()
+
+#plot contrast by layer for the first high selectivity neuron in each layer
+p_contrast <- contrast_df |>
+  inner_join(high_neurons, by = c("layer","neuron_idx")) |>
+  ggplot(aes(x = level, y = max_activation, group = neuron_idx)) +
+    geom_line(color = "royalblue4") +
+    geom_point(size = 2, color = "royalblue4") +
+    facet_wrap(~ layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Max Activation by Contrast and Layer",
+      subtitle = "First High Color Selective Neuron in Each Layer",
+      x = "Contrast Level",
+      y = "Max Activation"
+    ) +
+    theme_minimal()
+
+ggsave("brightness_layers.png", p_bright, width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+ggsave("contrast_layers.png", p_contrast, width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+```
+
+```{r}
+layer_labels<- c("features.0" = "conv1_1","features.2" = "conv1_2","features.5" = "conv2_1","features.7" = "conv2_2")
+
+#plots max_activations of all the neurons for each brightness transformation
+#faceted by layer
+p_bright_full <- bright_df |>
+  ggplot(aes(x = level,
+             y = max_activation,
+             group = factor(neuron_idx))) +
+    geom_line(alpha = 0.4, color = "mediumpurple") +
+    facet_wrap(~layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Max Activation by Brightness and Layer - All Neurons",
+      x = "Brightness Level",
+      y = "Max Activation"
+    ) +
+    theme_minimal()
+
+#plots max_activations of all the neurons for each contrast transformation
+#faceted by layer
+p_contrast_full <- contrast_df |>
+  ggplot(aes(x = level,
+             y = max_activation,
+             group = factor(neuron_idx))) +
+    geom_line(alpha = 0.4, color = "mediumpurple") +
+    facet_wrap(~layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Max Activation by Contrast and Layer - All Neurons",
+      x = "Contrast Level",
+      y = "Max Activation"
+    ) +
+    theme_minimal()
+
+ggsave("brightness_all_neurons.png", p_bright_full, width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+ggsave("contrast_all_neurons.png", p_contrast_full, width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+```
+
+```{r}
+#plot csi by brightness transformation for the first high selectivity neuron in each layer
+#faceted by layer
+p_bright_csi <- bright_df |>
+  inner_join(high_neurons, by = c("layer","neuron_idx")) |>
+  ggplot(aes(x = level, y = csi, group = neuron_idx)) +
+    geom_line(color = "royalblue4") +
+    geom_point(size = 2, color = "royalblue4") +
+    facet_wrap(~ layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Color Selectivity by Brightness and Layer",
+      subtitle = "First High Color Selective Neuron in Each Layer",
+      x     = "Brightness Level",
+      y     = "CSI"
+    ) +
+    theme_minimal()
+
+#plot csi by contrast transformation for the first high selectivity neuron in each layer
+#faceted by layer
+p_contrast_csi <- contrast_df |>
+  inner_join(high_neurons, by = c("layer","neuron_idx")) |>
+  ggplot(aes(x = level, y = csi, group = neuron_idx)) +
+    geom_line(color = "royalblue4") +
+    geom_point(size = 2, color = "royalblue4") +
+    facet_wrap(~ layer, scales = "free_y") +
+    labs(
+      title = "Color Selectivity by Contrast and Layer",
+      subtitle = "First High Color Selective Neuron in Each Layer",
+      x = "Contrast Level",
+      y = "CSI"
+    ) +
+    theme_minimal()
+
+#plots csi of all the neurons for each brightness transformation
+#faceted by layer
+p_bright_csi_all <- bright_df |>
+  ggplot(aes(x = level, y = csi, group = factor(neuron_idx))) +
+    geom_line(alpha = 0.4, color = "mediumpurple")+
+    facet_wrap(~ layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Color Selectivity by Brightness and Layer - All Neurons",
+      x= "Brightness Level",
+      y= "CSI"
+    ) +
+    theme_minimal()
+
+#plots csi of all the neurons for each contrast transformation
+#faceted by layer
+p_contrast_csi_all <- contrast_df |>
+  ggplot(aes(x = level, y = csi, group = factor(neuron_idx))) +
+    geom_line(alpha = 0.4, color = "mediumpurple") +
+    facet_wrap(~ layer, scales = "free_y", labeller = labeller(layer = layer_labels)) +
+    labs(
+      title = "Color Selectivity by Contrast and Layer - All Neurons",
+      x= "Contrast Level",
+      y= "CSI"
+    ) +
+    theme_minimal()
+
+ggsave("bright_high_neurons_csi.png",   p_bright_csi,      width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+ggsave("contrast_high_neurons_csi.png", p_contrast_csi,    width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+ggsave("bright_all_neurons_csi.png",    p_bright_csi_all,  width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+ggsave("contrast_all_neurons_csi.png",  p_contrast_csi_all,width=5, height=6, path = "/Users/charlotteimbert/Documents/nefesi_outputs/figures/")
+```
+
+```{r}
+#saves each individual sheet in the .xlsx files as individual dfs objects to make the figures below)
+path_contrast<- "/Users/charlotteimbert/Documents/nefesi_outputs/metrics_contrast.xlsx"
+path_brightness<- "/Users/charlotteimbert/Documents/nefesi_outputs/metrics_brightness.xlsx"
+sheets_contrast <- excel_sheets(path_contrast)
+sheets_brightness <- excel_sheets(path_brightness)
+
+dfs_contrast <- lapply(sheets_contrast, function(sh) read_xlsx(path_contrast, sheet = sh))
+names(dfs_contrast) <- make.names(sheets_contrast)
+
+dfs_brightness <- lapply(sheets_brightness, function(sh) read_xlsx(path_brightness, sheet = sh))
+names(dfs_brightness) <- make.names(sheets_brightness)
+
+list2env(dfs_contrast, envir = .GlobalEnv)
+list2env(dfs_brightness, envir = .GlobalEnv)
+```
+
+```{r}
+#recreating the Rafegas and Vanrell plots of csi % per layer. For original images and each brightness and contrast transformation (all chunks below this one are for the various transformations)
+original <-original |>
+  mutate(layer = factor(layer,levels = c("features.0","features.2","features.5","features.7"),labels = c("conv1_1","conv1_2","conv2_1","conv2_2")))
+
+breaks <-seq(0, 1, by = 0.05)
+labels <-sprintf("[%.2f,%.2f)", head(breaks,-1), tail(breaks,-1))
+
+original<- original |>
+  mutate(csi_bin = cut(csi,breaks = breaks,labels = labels,include.lowest = TRUE,right = FALSE))
+
+dist_df <- original|>
+  count(layer, csi_bin)|>
+  group_by(layer) |>
+  mutate(pct = n/sum(n)*100)|>
+  ungroup()
+
+#plot
+ggplot(dist_df, aes(x = layer, y = pct, fill = csi_bin)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,100)) +
+  scale_fill_viridis_d(option= "cividis", direction= -1,name= "CSI bin") +
+  labs(x= NULL,
+    y="% of neurons",
+    title= "CSI distribution by layer",
+    subtitle = "Original images") +
+  theme_minimal() +
+  theme(legend.position= "right",
+    axis.text.x=element_text(angle = 45, hjust = 1))
+ggsave("original.png", path = '/Users/charlotteimbert/Documents/nefesi_outputs/figures/')
+```
+
+```{r}
+bright100 <- bright100|>
+  mutate(layer = factor(layer,levels = c("features.0","features.2","features.5","features.7"),labels = c("conv1_1","conv1_2","conv2_1","conv2_2")))
+
+breaks <- seq(0, 1, by = 0.05)
+labels <- sprintf("[%.2f,%.2f)", head(breaks,-1), tail(breaks,-1))
+
+bright100 <- bright100|>
+  mutate(csi_bin = cut(csi,breaks = breaks,labels = labels,include.lowest = TRUE,right = FALSE))
+
+dist_df <- bright100|>
+  count(layer, csi_bin)|>
+  group_by(layer)|>
+  mutate(pct = n/sum(n)*100)|>
+  ungroup()
+
+ggplot(dist_df, aes(x = layer, y = pct, fill = csi_bin)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,100)) +
+  scale_fill_viridis_d(option= "cividis",direction= -1,name= "CSI bin") +
+  labs(x= NULL,
+    y= "% of neurons",
+    title= "CSI distribution by layer",
+    subtitle= "+100% brightness") +
+  theme_minimal() +
+  theme(legend.position= "right",axis.text. = element_text(angle = 45, hjust = 1))
+ggsave("100bright.png", path = '/Users/charlotteimbert/Documents/nefesi_outputs/figures/')
+```
+
+```{r}
+brightneg100 <- brightneg100 |>
+  mutate(layer = factor(layer,levels = c("features.0","features.2","features.5","features.7"),labels = c("conv1_1","conv1_2","conv2_1","conv2_2")))
+
+breaks<- seq(0, 1, by = 0.05)
+labels<- sprintf("[%.2f,%.2f)", head(breaks,-1), tail(breaks,-1))
+
+brightneg100<- brightneg100 |>
+  mutate(csi_bin = cut(csi,breaks = breaks,labels = labels,include.lowest = TRUE,right = FALSE))
+
+dist_df <- brightneg100|>
+  count(layer, csi_bin)|>
+  group_by(layer)|>
+  mutate(pct=n/sum(n)*100)|>
+  ungroup()
+
+ggplot(dist_df, aes(x = layer, y = pct, fill = csi_bin)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,100)) +
+  scale_fill_viridis_d(option= "cividis",direction = -1,name= "CSI bin") +
+  labs(x= NULL,y= "% of neurons",title= "CSI distribution by layer",subtitle = "-100% brightness") +
+  theme_minimal() +
+  theme(legend.position= "right",
+    axis.text.x= element_text(angle = 45, hjust = 1))
+ggsave("neg100bright.png", path = '/Users/charlotteimbert/Documents/nefesi_outputs/figures/')
+```
+
+```{r}
+contrastneg100 <- contrastneg100 |>
+  mutate(layer = factor(layer,levels = c("features.0","features.2","features.5","features.7"),labels = c("conv1_1","conv1_2","conv2_1","conv2_2")))
+
+breaks<- seq(0, 1, by = 0.05)
+labels<- sprintf("[%.2f,%.2f)", head(breaks,-1), tail(breaks,-1))
+
+contrastneg100 <- contrastneg100|>
+  mutate(csi_bin = cut(csi,breaks = breaks,labels = labels,include.lowest = TRUE,right = FALSE))
+
+dist_df <-contrastneg100|>
+  count(layer, csi_bin)|>
+  group_by(layer)|>
+  mutate(pct = n/sum(n)*100)|>
+  ungroup()
+
+ggplot(dist_df, aes(x = layer, y = pct, fill = csi_bin)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,100)) +
+  scale_fill_viridis_d(option="cividis",direction = -1,name="CSI bin" ) +
+  labs(x= NULL,y= "% of neurons",title= "CSI distribution by layer",subtitle = "-100% contrast") +
+  theme_minimal() +
+  theme(legend.position= "right",axis.text.x= element_text(angle = 45, hjust = 1))
+ggsave("neg100contrast.png", path = '/Users/charlotteimbert/Documents/nefesi_outputs/figures/')
+```
+
+```{r}
+contrast_100 <-contrast_100|>
+  mutate(layer = factor(layer,levels = c("features.0","features.2","features.5","features.7"),labels = c("conv1_1","conv1_2","conv2_1","conv2_2")))
+
+breaks<- seq(0, 1, by = 0.05)
+labels<- sprintf("[%.2f,%.2f)", head(breaks,-1), tail(breaks,-1))
+
+contrast_100 <-contrast_100|>
+  mutate(csi_bin = cut(csi,breaks = breaks,labels = labels,include.lowest = TRUE,right = FALSE))
+
+dist_df <- contrast_100|>
+  count(layer, csi_bin)|>
+  group_by(layer)|>
+  mutate(pct = n/sum(n)*100)|>
+  ungroup()
+
+ggplot(dist_df, aes(x = layer, y = pct, fill = csi_bin)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,100)) +
+  scale_fill_viridis_d(option= "cividis",direction = -1,name= "CSI bin") +
+  labs(x= NULL,y= "% of neurons",title= "CSI distribution by layer",subtitle = "+100% contrast") +
+  theme_minimal() +
+  theme(legend.position= "right",axis.text.x= element_text(angle = 45, hjust = 1))
+ggsave("100contrast.png", path = '/Users/charlotteimbert/Documents/nefesi_outputs/figures/')
+```
